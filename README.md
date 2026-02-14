@@ -13,7 +13,7 @@ In this post, I’ll share my journey deploying a static web application on AWS 
 Here’s the final architecture:
 
 ```
-![Delpyment-of-Static-Website-using-Terraform](images/Architure.png)
+![Delpyment-of-Static-Website-using-Terraform](images/Architeture.png)
 
 
 
