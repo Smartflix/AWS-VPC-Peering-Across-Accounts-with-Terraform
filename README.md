@@ -28,7 +28,7 @@ Here’s the final architecture:
 
 ```
 
-!\[Architecture Diagram](images/architecture.png)
+![Architecture Diagram](images/architecture.png)
 
 
 
