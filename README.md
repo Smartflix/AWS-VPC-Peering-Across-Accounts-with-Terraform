@@ -33,6 +33,7 @@ I wanted:
 ### Providers and variables
 
 I defined two provider aliases, one per account/region, and variables for VPCs and keys:
+```
 provider "aws" {
   alias  = "primary"
   region = var.primary   # us-east-1
@@ -70,7 +71,7 @@ variable "secondary_key_name" {
   type        = string
   default     = ""
 }
-
+```
 
 In `terraform.tfvars` I set:
 
