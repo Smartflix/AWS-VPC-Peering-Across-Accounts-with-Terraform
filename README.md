@@ -33,7 +33,7 @@ I wanted:
 ### Providers and variables
 
 I defined two provider aliases, one per account/region, and variables for VPCs and keys:
-```
+```hcl
 provider "aws" {
   alias  = "primary"
   region = var.primary   # us-east-1
