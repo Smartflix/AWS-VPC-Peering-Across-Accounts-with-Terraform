@@ -34,7 +34,6 @@ I wanted:
 ### Providers and variables
 
 I defined two provider aliases, one per account/region, and variables for VPCs and keys:
-
 ```
 provider "aws" {
   alias  = "primary"
