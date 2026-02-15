@@ -1,209 +1,298 @@
-provider "aws" {
-  region = "us-east-1" # your main region
-}
+resource "aws_vpc" "primary_vpc" {
+  cidr_block       = var.primary_vpc_cidr
+  provider = aws.primary
+  enable_dns_hostnames = true
+  enable_dns_support = true
+  instance_tenancy = "default"
 
-provider "aws" {
-  alias  = "us_east_1"
-  region = "us-east-1"
-}
-
-
-
-
-resource "aws_s3_bucket" "firstbucket" {
-  bucket = var.bucket_name
-
-  tags = var.tags
-}
-
-# make s3 bucket private
-
-resource "aws_s3_bucket_public_access_block" "block" {
-  bucket = aws_s3_bucket.firstbucket.id
-
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
-
-# origin access control
-resource "aws_cloudfront_origin_access_control" "oac" {
-  name                              = "demo-oac"
-  description                       = "Example Policy"
-  origin_access_control_origin_type = "s3"
-  signing_behavior                  = "always"
-  signing_protocol                  = "sigv4"
-}
-
-
-# s3 bucket policy
-
-resource "aws_s3_bucket_policy" "allow_cf" {
-  bucket = aws_s3_bucket.firstbucket.id
-  depends_on = [ aws_s3_bucket_public_access_block.block ] // dependency on the private access 
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "AllowCloudFront"
-        Effect = "Allow"
-
-        Principal = {
-          Service = "cloudfront.amazonaws.com"
-        }
-
-        Action = [
-          "s3:GetObject"
-        ]
-
-        Resource = "${aws_s3_bucket.firstbucket.arn}/*"
-
-        Condition = {
-          StringEquals = {
-            "AWS:SourceArn" = aws_cloudfront_distribution.s3_distribution.arn
-          }
-        }
-      }
-    ]
-
-  })
-}
-
-
-# to upload the resources into the s3 bucket so we can manage the files inside the bucket
-
-
-resource "aws_s3_object" "object" {
-  for_each = fileset("${path.module}/www", "**/*")
-
-  bucket = aws_s3_bucket.firstbucket.id
-  key    = each.value
-  source = "${path.module}/www/${each.value}"
-
-  etag = filemd5("${path.module}/www/${each.value}")
-  content_type = lookup({
-    "html" = "text/html",
-    "css"  = "text/css",
-    "js"   = "application/javascript",
-    "json" = "application/json",
-    "png"  = "image/png",
-    "jpg"  = "image/jpeg",
-    "jpeg" = "image/jpeg",
-    "gif"  = "image/gif",
-    "svg"  = "image/svg+xml",
-    "ico"  = "image/x-icon",
-    "txt"  = "text/plain"
-  }, split(".", each.value)[length(split(".", each.value)) - 1], "application/octet-stream")
-}
-
-
-resource "aws_cloudfront_distribution" "s3_distribution" {
-  # depends_on = [aws_acm_certificate_validation.cert_validation]
-  origin {
-    domain_name              = aws_s3_bucket.firstbucket.bucket_regional_domain_name
-    origin_access_control_id = aws_cloudfront_origin_access_control.oac.id
-    origin_id                = local.origin_id
+  tags = {
+    Name = "Primary-VPC-${var.primary}"
   }
-  enabled = true
-  aliases = ["smartflixlms.com"]
-  is_ipv6_enabled     = true
-  comment             = "Some comment"
-  default_root_object = "index.html"
+}
 
+
+
+resource "aws_vpc" "secondary_vpc" {
+  cidr_block       = var.secondary_vpc_cidr
+  provider = aws.secondary
+  enable_dns_hostnames = true
+  enable_dns_support = true
+  instance_tenancy = "default"
+
+  tags = {
+    Name = "Secondary-VPC-${var.secondary}"
+  }
+}
+
+resource "aws_subnet" "primary_subnet" {
+  vpc_id     = aws_vpc.primary_vpc.id
+  cidr_block = var.primary_vpc_cidr
+  provider = aws.primary
+  availability_zone = data.aws_availability_zones.primary.names[0]
+  map_public_ip_on_launch = true
+
+  tags = {
+    Name = "Primary-Subnet-${var.primary}"
+    Enviroment = "Demo"
+  }
+}
+
+resource "aws_subnet" "secondary_subnet" {
+  vpc_id     = aws_vpc.secondary_vpc.id
+  cidr_block = var.secondary_vpc_cidr
+  provider = aws.secondary
+  availability_zone = data.aws_availability_zones.secondary.names[0]
+  map_public_ip_on_launch = true
+
+  tags = {
+    Name = "Secondary-Subnet-${var.secondary}"
+    Enviroment = "Demo"
+  }
+}
+
+
+resource "aws_internet_gateway" "primary_igw" {
+  provider = aws.primary
+  vpc_id = aws_vpc.primary_vpc.id
+
+ tags = {
+    Name = "Primary-IGW-${var.primary}"
+    Enviroment = "Demo"
+  }
+}
+
+resource "aws_internet_gateway" "secondary_igw" {
+  provider = aws.secondary
+  vpc_id = aws_vpc.secondary_vpc.id
   
-
-  default_cache_behavior {
-    allowed_methods  = ["GET", "HEAD"]
-    cached_methods   = ["GET", "HEAD"]
-    target_origin_id = local.origin_id  # busket_id(aws_s3_bucket.firstbucket.id)
-
-    forwarded_values {
-      query_string = false
-
-      cookies {
-        forward = "none"
-      }
-    }
-
-    viewer_protocol_policy = "redirect-to-https"
-    min_ttl                = 0
-    default_ttl            = 3600
-    max_ttl                = 86400
-  }
-
-  # Cache behavior with precedence 0
-  ordered_cache_behavior {
-    path_pattern     = "/content/immutable/*"
-    allowed_methods  = ["GET", "HEAD", "OPTIONS"]
-    cached_methods   = ["GET", "HEAD", "OPTIONS"]
-    target_origin_id = local.origin_id
-
-    forwarded_values {
-      query_string = false
-      headers      = ["Origin"]
-
-      cookies {
-        forward = "none"
-      }
-    }
-
-    min_ttl                = 0
-    default_ttl            = 86400
-    max_ttl                = 31536000
-    compress               = true
-    viewer_protocol_policy = "redirect-to-https"
-  }
-
-  price_class = "PriceClass_200"
-
-  restrictions {
-    geo_restriction {
-      restriction_type = "none"
-     
-    }
-  }
-
-
-    viewer_certificate {
-      acm_certificate_arn      = aws_acm_certificate.cert.arn
-      ssl_support_method       = "sni-only"
-      minimum_protocol_version = "TLSv1.2_2021"
-}
-}
-
-# Create Route53 records for the CloudFront distribution aliases
-resource "aws_route53_zone" "primary" {
-  name = "smartflixlms.com"
-}
-
-
-#  create alias record to cloudfront
-
-# resource "aws_route53_record" "root_domain" {
-#   zone_id  = data.aws_route53_zone.primary.zone_id
-#   name     = "smartflixlms.com"
-#   type     = "A"
-
-#   alias {
-#     name                   = aws_cloudfront_distribution.s3_distribution.domain_name
-#     zone_id                = aws_cloudfront_distribution.s3_distribution.hosted_zone_id
-#     evaluate_target_health = false
-#   }
-# }
-
-
-# create a certificate
-
-resource "aws_acm_certificate" "cert" {
-  domain_name       = "smartflixlms.com"
-  validation_method = "DNS"
-  provider = aws.us_east_1
-  lifecycle {
-    create_before_destroy = true
+  tags = {
+    Name = "Secondary-Subnet-${var.secondary}"
+    Enviroment = "Demo"
   }
 
 }
 
 
+resource "aws_route_table" "primary_rt" {
+  provider = aws.primary
+  vpc_id = aws_vpc.primary_vpc.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.primary_igw.id
+  }
+
+ tags = {
+    Name = "Primary-RT-${var.primary}"
+    Enviroment = "Demo"
+  }
+}
+
+
+
+resource "aws_route_table" "secondary_rt" {
+  provider = aws.secondary
+  vpc_id = aws_vpc.secondary_vpc.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.secondary_igw.id
+  }
+
+   tags = {
+    Name = "Secondary-Subnet-${var.secondary}"
+    Enviroment = "Demo"
+  }
+}
+
+resource "aws_route_table_association" "primary_rta" {
+  provider = aws.primary
+  subnet_id      = aws_subnet.primary_subnet.id
+  route_table_id = aws_route_table.primary_rt.id
+}
+
+
+resource "aws_route_table_association" "secondary_rta" {
+  provider = aws.secondary
+  subnet_id      = aws_subnet.secondary_subnet.id
+  route_table_id = aws_route_table.secondary_rt.id
+}
+
+# VPC Peering Connection (Requester side - Primary VPC)
+resource "aws_vpc_peering_connection" "primary_to_secondary" {
+  provider    = aws.primary
+  vpc_id      = aws_vpc.primary_vpc.id
+  peer_vpc_id = aws_vpc.secondary_vpc.id
+  peer_region = var.secondary
+  auto_accept = false
+
+  tags = {
+    Name        = "Primary-to-Secondary-Peering"
+    Environment = "Demo"
+    Side        = "Requester"
+  }
+}
+
+# VPC Peering Connection Accepter (Accepter side - Secondary VPC)
+resource "aws_vpc_peering_connection_accepter" "secondary_accepter" {
+  provider                  = aws.secondary
+  vpc_peering_connection_id = aws_vpc_peering_connection.primary_to_secondary.id
+  auto_accept               = true
+
+  tags = {
+    Name        = "Secondary-Peering-Accepter"
+    Environment = "Demo"
+    Side        = "Accepter"
+  }
+}
+
+# Add route to Secondary VPC in Primary route table
+resource "aws_route" "primary_to_secondary" {
+  provider                  = aws.primary
+  route_table_id            = aws_route_table.primary_rt.id
+  destination_cidr_block    = var.secondary_vpc_cidr
+  vpc_peering_connection_id = aws_vpc_peering_connection.primary_to_secondary.id
+
+  depends_on = [aws_vpc_peering_connection_accepter.secondary_accepter]
+}
+
+# Add route to Primary VPC in Secondary route table
+resource "aws_route" "secondary_to_primary" {
+  provider                  = aws.secondary
+  route_table_id            = aws_route_table.secondary_rt.id
+  destination_cidr_block    = var.primary_vpc_cidr
+  vpc_peering_connection_id = aws_vpc_peering_connection.primary_to_secondary.id
+
+  depends_on = [aws_vpc_peering_connection_accepter.secondary_accepter]
+}
+
+# Security Group for Primary VPC EC2 instance
+resource "aws_security_group" "primary_sg" {
+  provider    = aws.primary
+  name        = "primary-vpc-sg"
+  description = "Security group for Primary VPC instance"
+  vpc_id      = aws_vpc.primary_vpc.id
+
+  ingress {
+    description = "SSH from anywhere"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "ICMP from Secondary VPC"
+    from_port   = -1
+    to_port     = -1
+    protocol    = "icmp"
+    cidr_blocks = [var.secondary_vpc_cidr]
+  }
+
+  ingress {
+    description = "All traffic from Secondary VPC"
+    from_port   = 0
+    to_port     = 65535
+    protocol    = "tcp"
+    cidr_blocks = [var.secondary_vpc_cidr]
+  }
+
+  egress {
+    description = "Allow all outbound traffic"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name        = "Primary-VPC-SG"
+    Environment = "Demo"
+  }
+}
+
+# Security Group for Secondary VPC EC2 instance
+resource "aws_security_group" "secondary_sg" {
+  provider    = aws.secondary
+  name        = "secondary-vpc-sg"
+  description = "Security group for Secondary VPC instance"
+  vpc_id      = aws_vpc.secondary_vpc.id
+
+  ingress {
+    description = "SSH from anywhere"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "ICMP from Primary VPC"
+    from_port   = -1
+    to_port     = -1
+    protocol    = "icmp"
+    cidr_blocks = [var.primary_vpc_cidr]
+  }
+
+  ingress {
+    description = "All traffic from Primary VPC"
+    from_port   = 0
+    to_port     = 65535
+    protocol    = "tcp"
+    cidr_blocks = [var.primary_vpc_cidr]
+  }
+
+  egress {
+    description = "Allow all outbound traffic"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name        = "Secondary-VPC-SG"
+    Environment = "Demo"
+  }
+}
+
+# EC2 Instance in Primary VPC
+resource "aws_instance" "primary_instance" {
+  provider               = aws.primary
+  ami                    = data.aws_ami.primary_ami.id
+  instance_type          = var.instance_type
+  subnet_id              = aws_subnet.primary_subnet.id
+  vpc_security_group_ids = [aws_security_group.primary_sg.id]
+  key_name               = var.primary_key_name
+
+  user_data = local.primary_user_data
+
+  tags = {
+    Name        = "Primary-VPC-Instance"
+    Environment = "Demo"
+    Region      = var.primary
+  }
+ depends_on = [aws_vpc_peering_connection.primary_to_secondary]
+
+}
+
+# EC2 Instance in Secondary VPC
+resource "aws_instance" "secondary_instance" {
+  provider               = aws.secondary
+  ami                    = data.aws_ami.secondary_ami.id
+  instance_type          = var.instance_type
+  subnet_id              = aws_subnet.secondary_subnet.id
+  vpc_security_group_ids = [aws_security_group.secondary_sg.id]
+  key_name               = var.secondary_key_name
+
+  user_data = local.secondary_user_data
+
+  tags = {
+    Name        = "Secondary-VPC-Instance"
+    Environment = "Demo"
+    Region      = var.secondary
+  }
+depends_on = [aws_vpc_peering_connection.primary_to_secondary]
+
+ 
+}
