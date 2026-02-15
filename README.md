@@ -169,7 +169,7 @@ resource "aws_route_table" "primary_rt" {
 }
 
 resource "aws_route_table" "secondary_rt" {
-OAOAOA  provider = aws.secondary
+  provider = aws.secondary
   vpc_id   = aws_vpc.secondary_vpc.id
 
   route {
@@ -179,8 +179,7 @@ resource "aws_route_table" "secondary_rt" {
 
   tags = {
     Name        = "Secondary-RT-${var.secondary}"
-    Environment = "Demo"
-OAOAOA  }
+    Environment = "Demo  }
 }
 
 resource "aws_route_table_association" "primary_rta" {
@@ -192,7 +191,7 @@ resource "aws_route_table_association" "primary_rta" {
 resource "aws_route_table_association" "secondary_rta" {
   provider       = aws.secondary
   subnet_id      = aws_subnet.secondary_subnet.id
-OAOAOA  route_table_id = aws_route_table.secondary_rt.id
+  route_table_id = aws_route_table.secondary_rt.id
 }
 ```
 
