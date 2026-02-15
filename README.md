@@ -33,7 +33,6 @@ I wanted:
 ### Providers and variables
 
 I defined two provider aliases, one per account/region, and variables for VPCs and keys:
-```hcl
 provider "aws" {
   alias  = "primary"
   region = var.primary   # us-east-1
@@ -44,11 +43,21 @@ provider "aws" {
   region = var.secondary # us-west-2
 }
 
-variable "primary"   { default = "us-east-1" }
-variable "secondary" { default = "us-west-2" }
+variable "primary" {
+  default = "us-east-1"
+}
 
-variable "primary_vpc_cidr"   { default = "10.0.0.0/16" }
-variable "secondary_vpc_cidr" { default = "10.1.0.0/16" }
+variable "secondary" {
+  default = "us-west-2"
+}
+
+variable "primary_vpc_cidr" {
+  default = "10.0.0.0/16"
+}
+
+variable "secondary_vpc_cidr" {
+  default = "10.1.0.0/16"
+}
 
 variable "primary_key_name" {
   description = "Name of the SSH key pair for Primary VPC instance (us-east-1)"
@@ -61,7 +70,7 @@ variable "secondary_key_name" {
   type        = string
   default     = ""
 }
-```
+
 
 In `terraform.tfvars` I set:
 
